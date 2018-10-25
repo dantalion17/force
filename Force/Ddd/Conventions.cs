@@ -1,17 +1,20 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.ComponentModel.DataAnnotations;
 using System.Linq;
 using System.Linq.Expressions;
 using System.Reflection;
+using System.Security.Cryptography.X509Certificates;
 using Force.Infrastructure;
 
 namespace Force.Ddd
 {
     public enum ComposeKind
     {
-        And, Or
+        And,
+        Or
     }
-    
+
     public static class ConventionsExtensions
     {
         public static IQueryable<TSubject> AutoFilter<TSubject, TPredicate>(
@@ -20,43 +23,26 @@ namespace Force.Ddd
             var filtered = Conventions<TSubject>.Filter(query, predicate, composeKind);
             var orderBy = FastTypeInfo<TPredicate>.PublicProperties.FirstOrDefault(x => x.Name == "OrderBy");
             var proprtyName = orderBy?.GetValue(predicate, null) as string;
-            
+
             return proprtyName == null
                 ? filtered
                 : Conventions<TSubject>.Sort(filtered, proprtyName);
         }
 
-        public static IOrderedQueryable<TSubject> OrderBy<TSubject>(this IQueryable<TSubject> query, string propertyName)
+        public static IOrderedQueryable<TSubject> OrderBy<TSubject>(this IQueryable<TSubject> query,
+            string propertyName)
             => Conventions<TSubject>.Sort(query, propertyName);
     }
 
-    public static class Conventions
+
+    public static class FieldExpressionFiltersBuilder
     {
-        public static ConventionalFilters Filters { get; } = new ConventionalFilters();
-    }
-
-    public class ConventionalFilters
-    {
-        private static MethodInfo StartsWith = typeof(string)
-            .GetMethod("StartsWith", new[] {typeof(string)});
-
-        private static Dictionary<Type, Func<MemberExpression, Expression, Expression>> _filters
-            = new Dictionary<Type, Func<MemberExpression, Expression, Expression>>()
-            {
-                { typeof(string),  (p, v) => Expression.Call(p, StartsWith, v) }
-            };
-        
-        internal ConventionalFilters()
-        {            
-        }
-
-        public Func<MemberExpression, Expression, Expression> this[Type key]
+        public static List<IFieldExpressionBuilder> Builders { get; set; } = new List<IFieldExpressionBuilder>
         {
-            get => _filters.ContainsKey(key)
-                ? _filters[key]
-                : Expression.Equal;
-            set => _filters[key] = value ?? throw new ArgumentException(nameof(value));
-        }
+            new StringFieldExpressionBuilder(),
+            new EnumerableFieldBuilder(),
+            new ValueTypeFieldBuilder()
+        };
     }
 
     public static class Conventions<TSubject>
@@ -108,7 +94,7 @@ namespace Force.Ddd
 
             return (IOrderedQueryable<TSubject>) orderBy.Invoke(query, new object[] {query, expression});
         }
-        
+
         public static IQueryable<TSubject> Filter<TPredicate>(IQueryable<TSubject> query,
             TPredicate predicate,
             ComposeKind composeKind = ComposeKind.And)
@@ -124,9 +110,9 @@ namespace Force.Ddd
             var modelType = typeof(TSubject);
             var stringType = typeof(string);
             var dateTimeType = typeof(DateTime);
-            var dateTimeNullableType = typeof(DateTime?);
 
-            var parameter = Expression.Parameter(modelType);
+            var properties = FastTypeInfo<TSubject>
+                .PublicProperties.ToList();
 
             var props = FastTypeInfo<TSubject>
                 .PublicProperties
@@ -134,19 +120,13 @@ namespace Force.Ddd
                 .Select(x => new
                 {
                     Property = x,
-                    Value = filterProps.Single(y => y.Name == x.Name).GetValue(predicate)
+                    ValuePropInfo = filterProps.Single(xx => xx.Name == x.Name),
+                    Value = filterProps.Single(y => y.Name == x.Name).GetValue(predicate),
                 })
                 .Where(x => x.Value != null)
-                .Select(x =>
-                {
-                    var property = Expression.Property(parameter, x.Property);
-                    Expression value = Expression.Constant(x.Value);
-
-                    value = Expression.Convert(value, property.Type);
-                    var body = Conventions.Filters[property.Type](property, value);
-                        
-                    return Expression.Lambda<Func<TSubject, bool>>(body, parameter);
-                })
+                .Select(x => FieldExpressionFiltersBuilder.Builders
+                    .First(xx => xx.CanBuild(x.ValuePropInfo))
+                    .Build<TSubject>(x.Property, x.Value))
                 .ToArray();
 
             if (!props.Any())
@@ -154,9 +134,12 @@ namespace Force.Ddd
                 return query;
             }
 
+            Expression<Func<TSubject, bool>> spec = x => true;
+
             var expr = composeKind == ComposeKind.And
                 ? props.Aggregate((c, n) => c.And(n))
                 : props.Aggregate((c, n) => c.Or(n));
+
 
             return query.Where(expr);
         }

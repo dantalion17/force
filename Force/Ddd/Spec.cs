@@ -6,12 +6,12 @@ using Force.Infrastructure;
 
 namespace Force.Ddd
 {
-    public class Spec<T>        
+    public class Spec<T>
     {
         public static bool operator false(Spec<T> spec) => false;
-        
+
         public static bool operator true(Spec<T> spec) => false;
-        
+
         public static Spec<T> operator &(Spec<T> spec1, Spec<T> spec2)
             => new Spec<T>(spec1._expression.And(spec2._expression));
 
@@ -20,10 +20,10 @@ namespace Force.Ddd
 
         public static Spec<T> operator !(Spec<T> spec)
             => new Spec<T>(spec._expression.Not());
-        
+
         public static implicit operator Expression<Func<T, bool>>(Spec<T> spec)
             => spec._expression;
-        
+
         public static implicit operator Spec<T>(Expression<Func<T, bool>> expression)
             => new Spec<T>(expression);
 
@@ -39,7 +39,7 @@ namespace Force.Ddd
         public Spec<TParent> From<TParent>(Expression<Func<TParent, T>> mapFrom)
             => _expression.From(mapFrom);
     }
-    
+
     public static class SpecExtenions
     {
         public static Spec<T> ToSpec<T>(this Expression<Func<T, bool>> expr)
@@ -73,16 +73,7 @@ namespace Force.Ddd
                     Value = filterProps.Single(y => y.Name == x.Name).GetValue(predicate)
                 })
                 .Where(x => x.Value != null)
-                .Select(x =>
-                {
-                    var property = Expression.Property(parameter, x.Property);
-                    Expression value = Expression.Constant(x.Value);
-
-                    value = Expression.Convert(value, property.Type);
-                    var body = Conventions.Filters[property.Type](property, value);
-                        
-                    return Expression.Lambda<Func<T, bool>>(body, parameter);
-                })
+                .Select(x => FieldExpressionFiltersBuilder.Builders.First(xx => xx.CanBuild(x.Property)).Build<T>(x.Property,x.Value))
                 .ToArray();
 
             if (!props.Any())
@@ -94,7 +85,7 @@ namespace Force.Ddd
                 ? props.Aggregate((c, n) => c.And(n))
                 : props.Aggregate((c, n) => c.Or(n));
         }
-        
+
         public static bool Satisfy<T>(this T obj, Func<T, bool> spec)
         {
             return spec(obj);
@@ -113,6 +104,6 @@ namespace Force.Ddd
         public static bool IsSatisfiedBy<T>(this Expression<Func<T, bool>> spec, T obj)
         {
             return spec.AsFunc()(obj);
-        }  
-    }    
+        }
+    }
 }

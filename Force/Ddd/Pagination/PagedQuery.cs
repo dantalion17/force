@@ -2,7 +2,7 @@
 
 namespace Force.Ddd.Pagination
 {
-    public class PagedQuery<T> : Query<T>
+    public class PagedQuery<T> :Query<T>
     {
         public IPaging Paging { get; set; } = new Paging();
         

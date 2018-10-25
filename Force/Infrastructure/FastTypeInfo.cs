@@ -25,7 +25,7 @@ namespace Force.Infrastructure
         {
             var type = typeof(T);
             _attributes = type.GetCustomAttributes().ToArray();
-            
+
             _properties = type
                 .GetProperties()
                 .Where(x => x.CanRead && x.CanWrite)
@@ -48,7 +48,7 @@ namespace Force.Infrastructure
         public static bool HasAttribute<TAttr>()
             where TAttr : Attribute
             => Attributes.Any(x => x.GetType() == typeof(TAttr));
-            
+
         public static TAttr GetCustomAttribute<TAttr>() 
             where TAttr: Attribute
             => (TAttr)_attributes.FirstOrDefault(x => x.GetType() == typeof(TAttr));
